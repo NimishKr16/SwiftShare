@@ -1,7 +1,9 @@
 import 'dart:io';
+import 'dart:convert';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:fluttertoast/fluttertoast.dart';
+import 'dart:typed_data';
 
 class SendScreen extends StatefulWidget {
   const SendScreen({Key? key}) : super(key: key);
@@ -11,6 +13,8 @@ class SendScreen extends StatefulWidget {
 }
 
 class _SendScreenState extends State<SendScreen> with TickerProviderStateMixin {
+  static const int transferPort = 4040;
+
   late AnimationController _headerController;
   late AnimationController _contentController;
   List<PlatformFile>? _selectedFiles;
@@ -48,6 +52,44 @@ class _SendScreenState extends State<SendScreen> with TickerProviderStateMixin {
         msg: "No file selected",
         toastLength: Toast.LENGTH_SHORT,
         gravity: ToastGravity.BOTTOM,
+      );
+    }
+  }
+
+  void _startTransfer() async {
+    if (_selectedFiles == null || _selectedFiles!.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No files selected')),
+      );
+      return;
+    }
+
+    try {
+      final server = await ServerSocket.bind(InternetAddress.anyIPv4, transferPort);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Server started on port $transferPort')),
+      );
+
+      await for (final socket in server) {
+        for (final file in _selectedFiles!) {
+          final fileBytes = await File(file.path!).readAsBytes();
+          final fileNameBytes = utf8.encode(file.name + '\n');
+          socket.add(fileNameBytes);
+          socket.add(fileBytes);
+          await socket.flush();
+        }
+        await socket.close();
+        break; // Only handle one connection then stop
+      }
+
+      await server.close();
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('File transfer completed')),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error during transfer: $e')),
       );
     }
   }
@@ -211,6 +253,27 @@ class _SendScreenState extends State<SendScreen> with TickerProviderStateMixin {
                               ),
                             ),
                           ],
+                          const SizedBox(height: 20),
+                          SizedBox(
+                            width: 180,
+                            height: 48,
+                            child: ElevatedButton.icon(
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFF606c88),
+                                foregroundColor: Colors.white,
+                                elevation: 0,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(22),
+                                ),
+                                textStyle: theme.textTheme.titleMedium?.copyWith(
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              onPressed: _startTransfer,
+                              icon: const Icon(Icons.cloud_upload_rounded, size: 26),
+                              label: const Text("Start Transfer"),
+                            ),
+                          ),
                         ],
                       ),
                     ),

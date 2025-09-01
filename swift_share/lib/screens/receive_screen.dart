@@ -1,5 +1,9 @@
 import 'package:flutter/material.dart';
 import 'dart:ui';
+import 'dart:io';
+import 'dart:typed_data';
+import 'dart:convert';
+import 'package:path_provider/path_provider.dart';
 
 class ReceiveScreen extends StatefulWidget {
   const ReceiveScreen({Key? key}) : super(key: key);
@@ -12,6 +16,7 @@ class _ReceiveScreenState extends State<ReceiveScreen> with SingleTickerProvider
   double _headerOpacity = 0;
   double _cardOpacity = 0;
   double _cardScale = 0.95;
+  TextEditingController _ipController = TextEditingController();
 
   @override
   void initState() {
@@ -135,6 +140,33 @@ class _ReceiveScreenState extends State<ReceiveScreen> with SingleTickerProvider
                                   ),
                                   textAlign: TextAlign.center,
                                 ),
+                                const SizedBox(height: 20),
+                                TextField(
+                                  controller: _ipController,
+                                  decoration: const InputDecoration(
+                                    hintText: "Enter sender IP",
+                                    filled: true,
+                                    fillColor: Colors.white12,
+                                    border: OutlineInputBorder(),
+                                  ),
+                                  style: const TextStyle(color: Colors.white),
+                                ),
+                                const SizedBox(height: 16),
+                                SizedBox(
+                                  width: 180,
+                                  height: 48,
+                                  child: ElevatedButton.icon(
+                                    icon: const Icon(Icons.download_rounded),
+                                    label: const Text("Connect & Receive"),
+                                    onPressed: _connectAndReceive,
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: const Color(0xFF606c88),
+                                      foregroundColor: Colors.white,
+                                      elevation: 0,
+                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
+                                    ),
+                                  ),
+                                ),
                               ],
                             ),
                           ),
@@ -150,5 +182,58 @@ class _ReceiveScreenState extends State<ReceiveScreen> with SingleTickerProvider
         ),
       ),
     );
+  }
+  void _connectAndReceive() async {
+    if (_ipController.text.isEmpty) return;
+
+    try {
+      Socket socket = await Socket.connect(_ipController.text, 4040);
+      List<int> fileNameBytes = [];
+      bool fileNameReceived = false;
+      List<int> fileBytes = [];
+
+      socket.listen(
+        (Uint8List data) async {
+          if (!fileNameReceived) {
+            int newlineIndex = data.indexOf(10); // '\n' ascii code
+            if (newlineIndex != -1) {
+              // Extract filename
+              fileNameBytes.addAll(data.sublist(0, newlineIndex));
+              String fileName = utf8.decode(fileNameBytes);
+
+              // Remaining bytes are file content
+              fileBytes.addAll(data.sublist(newlineIndex + 1));
+              fileNameReceived = true;
+            } else {
+              fileNameBytes.addAll(data);
+            }
+          } else {
+            fileBytes.addAll(data);
+          }
+        },
+        onDone: () async {
+          Directory? directory;
+          if (Platform.isAndroid) {
+            directory = Directory('/storage/emulated/0/Download');
+          } else {
+            directory = await getApplicationDocumentsDirectory();
+          }
+          String finalFileName = 'received_file_${DateTime.now().millisecondsSinceEpoch}';
+          if (fileNameBytes.isNotEmpty) {
+            finalFileName = utf8.decode(fileNameBytes);
+          }
+          File file = File('${directory!.path}/$finalFileName');
+          await file.writeAsBytes(fileBytes);
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('File saved at ${file.path}')),
+          );
+          socket.destroy();
+        },
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to connect: $e')),
+      );
+    }
   }
 }
